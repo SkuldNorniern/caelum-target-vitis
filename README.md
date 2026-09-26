@@ -44,6 +44,8 @@ needs Vitis and XRT on PATH (`source <vitis>/settings64.sh`, `source /opt/xilinx
 
 the Caelum top has to look like a Vitis RTL kernel: `ap_clk`, `ap_rst_n`, an AXI4-Lite `s_axi_control` slave and one AXI4 master per memory port, named like the ports in `kernel.xml`. every port in `kernel.xml` gets associated with `ap_clk`.
 
+working example with register map, host and a simulator test: [examples/add_scalar](examples/add_scalar).
+
 ## files
 
 ```text
