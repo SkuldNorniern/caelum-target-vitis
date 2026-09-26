@@ -1,0 +1,18 @@
+# Caelum target provider: AMD Vitis RTL kernels (Alveo and other Vitis platforms).
+# caelum RTL -> Vivado IP packaging -> .xo -> v++ link -> .xclbin, host program with XRT.
+
+[provider]
+name = "vitis"
+description = "AMD Vitis RTL kernel flow: xo, xclbin, hw_emu and hw"
+modes = ["hw_emu", "hw"]
+provides = ["xo", "xclbin", "xrt-host"]
+tools = ["vivado", "v++"]
+
+[step.build]
+commands = ["sh \"$CAELUM_PROVIDER_DIR/scripts/build.sh\""]
+
+[step.run]
+commands = ["sh \"$CAELUM_PROVIDER_DIR/scripts/run.sh\""]
+
+[step.clean]
+commands = ["rm -rf \"$CAELUM_OUT_DIR\""]
