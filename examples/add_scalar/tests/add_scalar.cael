@@ -1,0 +1,129 @@
+// AddScalar against an XRT-like host (tasks) and a one-word-at-a-time memory (every).
+// caelum test
+
+task ctrl_write(addr: u<12>, data: u<32>) {
+    s_axi_control_awaddr = addr;
+    s_axi_control_wdata = data;
+    s_axi_control_wstrb = 0xf;
+    s_axi_control_awvalid = 1;
+    s_axi_control_wvalid = 1;
+    while (!s_axi_control_awready) { step; }
+    step;
+    s_axi_control_awvalid = 0;
+    s_axi_control_wvalid = 0;
+    s_axi_control_bready = 1;
+    while (!s_axi_control_bvalid) { step; }
+    expect(s_axi_control_bresp == 0);
+    step;
+    s_axi_control_bready = 0;
+}
+
+// the value lands in `rd`, a var of the calling test
+task ctrl_read(addr: u<12>) {
+    s_axi_control_araddr = addr;
+    s_axi_control_arvalid = 1;
+    while (!s_axi_control_arready) { step; }
+    step;
+    s_axi_control_arvalid = 0;
+    s_axi_control_rready = 1;
+    while (!s_axi_control_rvalid) { step; }
+    rd = s_axi_control_rdata;
+    step;
+    s_axi_control_rready = 0;
+}
+
+// program the args, start, poll ap_done like XRT does
+task run_kernel(n: u<32>, src: u<64>, dst: u<64>, k: u<32>) {
+    ctrl_write(0x10, n);
+    ctrl_write(0x18, trunc(src, 32));
+    ctrl_write(0x1c, icnrut(src, 32, 64));
+    ctrl_write(0x24, trunc(dst, 32));
+    ctrl_write(0x28, icnrut(dst, 32, 64));
+    ctrl_write(0x30, k);
+    ctrl_read(0x1c);
+    expect(rd == icnrut(src, 32, 64));
+    ctrl_read(0x00);
+    expect((rd & 5) == 4);            // idle, not started
+    ctrl_write(0x00, 1);
+    ctrl_read(0x00);
+    while ((rd & 2) == 0) { ctrl_read(0x00); }
+    expect((rd & 1) == 0);            // ap_start dropped with ap_done
+    ctrl_read(0x00);
+    expect((rd & 2) == 0);            // ap_done clears on read
+}
+
+test adds_k_to_every_word: AddScalar {
+    // 4096 words (16 KB) of memory at 0; src at 0x1000, dst at 0x2000 (word index = addr >> 2)
+    var mem: array<u<32>, 4096>;
+    var rd: u<32> = 0;
+    var wr_addr: u<64> = 0;
+    var wr_data: u<32> = 0;
+
+    // memory: answers on the gmem wires, one beat at a time
+    every {
+        if (gmem_arvalid & gmem_arready) {
+            expect(gmem_arlen == 0);
+            gmem_arready = 0;
+            gmem_rvalid = 1;
+            gmem_rdata = mem[trunc(gmem_araddr >> 2, 12)];
+        }
+        if (gmem_rvalid & gmem_rready) {
+            gmem_rvalid = 0;
+            gmem_arready = 1;
+        }
+        if (gmem_awvalid & gmem_awready) {
+            expect(gmem_awlen == 0);
+            wr_addr = gmem_awaddr;
+            gmem_awready = 0;
+        }
+        if (gmem_wvalid & gmem_wready) {
+            expect(gmem_wlast == 1);
+            expect(gmem_wstrb == 0xf);
+            wr_data = gmem_wdata;
+            gmem_wready = 0;
+        }
+        // address and data both in: store, then respond
+        if (!gmem_awready & !gmem_wready & !gmem_bvalid) {
+            mem[trunc(wr_addr >> 2, 12)] = wr_data;
+            gmem_bvalid = 1;
+        }
+        if (gmem_bvalid & gmem_bready) {
+            gmem_bvalid = 0;
+            gmem_awready = 1;
+            gmem_wready = 1;
+        }
+    }
+
+    gmem_arready = 1;
+    gmem_awready = 1;
+    gmem_wready = 1;
+    gmem_rlast = 1;
+    step(2);                          // in reset, ap_rst_n starts at 0
+    ap_rst_n = 1;
+
+    for i in 0..64 {
+        mem[0x400 + i] = (i * 0x01010101) ^ 0xdead0000;
+    }
+    run_kernel(64, 0x1000, 0x2000, 0xfffffff0);
+    for i in 0..64 {
+        expect(mem[0x800 + i] == trunc(((i * 0x01010101) ^ 0xdead0000) + 0xfffffff0, 32));
+    }
+    expect(mem[0x800 + 64] == 0);
+
+    // n = 0 finishes without touching memory
+    run_kernel(0, 0x1000, 0x3000, 1);
+    expect(mem[0xc00] == 0);
+
+    // interrupt: GIE + IER done, ISR toggles back on write
+    ctrl_write(0x04, 1);
+    ctrl_write(0x08, 1);
+    run_kernel(3, 0x1000, 0x3000, 7);
+    ctrl_read(0x0c);
+    expect(rd == 1);
+    expect(interrupt == 1);
+    ctrl_write(0x0c, 1);
+    ctrl_read(0x0c);
+    expect(rd == 0);
+    expect(interrupt == 0);
+    expect(mem[0xc02] == mem[0x402] + 7);
+}

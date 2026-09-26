@@ -1,8 +1,0 @@
-[package]
-name = "add_scalar_sim"
-version = "0.1.0"
-edition = "2021"
-publish = false
-
-[dependencies]
-caelum = { git = "https://github.com/SkuldNorniern/caelum" }
