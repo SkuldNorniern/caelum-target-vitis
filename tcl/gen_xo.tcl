@@ -39,6 +39,8 @@ if {[llength $files] == 0} {
     exit 1
 }
 add_files -norecurse $files
+# Caelum emits SystemVerilog constructs (logic, sized casts, return) into .v files
+set_property file_type SystemVerilog [get_files $files]
 foreach vh [glob -nocomplain $rtl/*.vh] {
     add_files -norecurse $vh
     set_property file_type {Verilog Header} [get_files $vh]
