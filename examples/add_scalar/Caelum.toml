@@ -1,0 +1,18 @@
+[package]
+name = "add_scalar"
+version = "0.1.0"
+
+[target-dependencies]
+vitis = { path = "../.." }
+alveo = { git = "https://github.com/SkuldNorniern/caelum-platform-alveo" }
+
+[target.u50]
+provider = "vitis"
+platform = "alveo::u50"
+host = "host/main.cpp"
+kernel-xml = "kernel.xml"
+config = "u50.cfg"
+
+[target.u50-emu]
+inherits = "u50"
+mode = "hw_emu"

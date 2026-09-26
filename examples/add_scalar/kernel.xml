@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root versionMajor="1" versionMinor="6">
+  <kernel name="AddScalar" language="ip_c" vlnv="caelum.dev:RTLKernel:AddScalar:1.0" attributes="" preferredWorkGroupSizeMultiple="0" workGroupSize="1" interrupt="true" hwControlProtocol="ap_ctrl_hs">
+    <ports>
+      <port name="s_axi_control" mode="slave" range="0x1000" dataWidth="32" portType="addressable" base="0x0"/>
+      <port name="gmem" mode="master" range="0xFFFFFFFFFFFFFFFF" dataWidth="32" portType="addressable" base="0x0"/>
+    </ports>
+    <args>
+      <arg name="n" addressQualifier="0" id="0" port="s_axi_control" size="0x4" offset="0x10" type="uint" hostOffset="0x0" hostSize="0x4"/>
+      <arg name="src" addressQualifier="1" id="1" port="gmem" size="0x8" offset="0x18" type="uint*" hostOffset="0x0" hostSize="0x8"/>
+      <arg name="dst" addressQualifier="1" id="2" port="gmem" size="0x8" offset="0x24" type="uint*" hostOffset="0x0" hostSize="0x8"/>
+      <arg name="k" addressQualifier="0" id="3" port="s_axi_control" size="0x4" offset="0x30" type="uint" hostOffset="0x0" hostSize="0x4"/>
+    </args>
+  </kernel>
+</root>

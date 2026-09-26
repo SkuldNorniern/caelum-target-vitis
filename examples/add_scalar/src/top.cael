@@ -1,0 +1,238 @@
+// Vitis RTL kernel: dst[i] = src[i] + k for i < n, 32-bit words.
+// XRT drives it like an HLS kernel: ap_ctrl_hs on s_axi_control, pointers on one m_axi port `gmem`.
+// Port names follow the Vivado IP packager (ap_clk, ap_rst_n, s_axi_control_*, gmem_*), package_xo
+// infers the interfaces from them. Register map is in kernel.xml.
+// One word at a time, no bursts: it is an example of the flow, not a fast kernel.
+module AddScalar {
+    input ap_clk: clock;
+    input ap_rst_n: reset;
+    output interrupt: bool;
+
+    // AXI4-Lite control, 32-bit, XRT writes whole words (wstrb ignored)
+    input s_axi_control_awvalid: bool;
+    output s_axi_control_awready: bool;
+    input s_axi_control_awaddr: u<12>;
+    input s_axi_control_wvalid: bool;
+    output s_axi_control_wready: bool;
+    input s_axi_control_wdata: u<32>;
+    input s_axi_control_wstrb: u<4>;
+    output s_axi_control_bvalid: bool;
+    input s_axi_control_bready: bool;
+    output s_axi_control_bresp: u<2>;
+    input s_axi_control_arvalid: bool;
+    output s_axi_control_arready: bool;
+    input s_axi_control_araddr: u<12>;
+    output s_axi_control_rvalid: bool;
+    input s_axi_control_rready: bool;
+    output s_axi_control_rdata: u<32>;
+    output s_axi_control_rresp: u<2>;
+
+    // AXI4 master, single beats
+    output gmem_arvalid: bool;
+    input gmem_arready: bool;
+    output gmem_araddr: u<64>;
+    output gmem_arlen: u<8>;
+    input gmem_rvalid: bool;
+    output gmem_rready: bool;
+    input gmem_rdata: u<32>;
+    input gmem_rlast: bool;
+    output gmem_awvalid: bool;
+    input gmem_awready: bool;
+    output gmem_awaddr: u<64>;
+    output gmem_awlen: u<8>;
+    output gmem_wvalid: bool;
+    input gmem_wready: bool;
+    output gmem_wdata: u<32>;
+    output gmem_wstrb: u<4>;
+    output gmem_wlast: bool;
+    input gmem_bvalid: bool;
+    output gmem_bready: bool;
+
+    enum Fsm { Idle, ReadAddr, ReadData, WriteAddr, WriteData, WriteResp, Finish }
+
+    // control registers, 0x00 ap_ctrl, 0x04 GIE, 0x08 IER, 0x0c ISR
+    state ap_start: bool = false;
+    state ap_done: bool = false;
+    state gie: bool = false;
+    state ier: u<2> = 0;
+    state isr: u<2> = 0;
+    // kernel args
+    state arg_n: u<32> = 0;
+    state arg_src: u<64> = 0;
+    state arg_dst: u<64> = 0;
+    state arg_k: u<32> = 0;
+    // AXI4-Lite response side
+    state bvalid: bool = false;
+    state rvalid: bool = false;
+    state rdata: u<32> = 0;
+
+    state fsm: Fsm;
+    state idx: u<32> = 0;
+    state word: u<32> = 0;
+
+    // AW and W are taken together, ready waits for both valids
+    fn write_fire() -> bool {
+        return s_axi_control_awvalid & s_axi_control_wvalid & !bvalid;
+    }
+
+    fn read_fire() -> bool {
+        return s_axi_control_arvalid & !rvalid;
+    }
+
+    // control slave, owns the registers
+    seq(ap_clk, ap_rst_n) {
+        if (!ap_rst_n) {
+            next.ap_start = false;
+            next.ap_done = false;
+            next.gie = false;
+            next.ier = 0;
+            next.isr = 0;
+            next.arg_n = 0;
+            next.arg_src = 0;
+            next.arg_dst = 0;
+            next.arg_k = 0;
+            next.bvalid = false;
+            next.rvalid = false;
+            next.rdata = 0;
+        } else {
+            let wr = write_fire();
+            let fin = fsm == Fsm::Finish;
+            let wr_ctrl = wr & (s_axi_control_awaddr == 0x00);
+            let wr_isr = wr & (s_axi_control_awaddr == 0x0c);
+
+            if (wr) {
+                match (s_axi_control_awaddr) {
+                    0x04 => { next.gie = trunc(s_axi_control_wdata, 1) == 1; }
+                    0x08 => { next.ier = trunc(s_axi_control_wdata, 2); }
+                    0x10 => { next.arg_n = s_axi_control_wdata; }
+                    0x18 => { next.arg_src = cat(icnrut(arg_src, 32, 64), s_axi_control_wdata); }
+                    0x1c => { next.arg_src = cat(s_axi_control_wdata, trunc(arg_src, 32)); }
+                    0x24 => { next.arg_dst = cat(icnrut(arg_dst, 32, 64), s_axi_control_wdata); }
+                    0x28 => { next.arg_dst = cat(s_axi_control_wdata, trunc(arg_dst, 32)); }
+                    0x30 => { next.arg_k = s_axi_control_wdata; }
+                    _ => { }
+                }
+                next.bvalid = true;
+            } else if (bvalid & s_axi_control_bready) {
+                next.bvalid = false;
+            }
+
+            // ap_start stays up until the run finishes (ap_ready)
+            if (fin) {
+                next.ap_start = false;
+            } else if (wr_ctrl & (trunc(s_axi_control_wdata, 1) == 1)) {
+                next.ap_start = true;
+            }
+            // ap_done clears when the host reads 0x00
+            if (fin) {
+                next.ap_done = true;
+            } else if (read_fire() & (s_axi_control_araddr == 0x00)) {
+                next.ap_done = false;
+            }
+            // ISR bit 0 done, bit 1 ready, host writes 1 to toggle
+            if (fin) {
+                if (wr_isr) {
+                    next.isr = (isr ^ trunc(s_axi_control_wdata, 2)) | ier;
+                } else {
+                    next.isr = isr | ier;
+                }
+            } else if (wr_isr) {
+                next.isr = isr ^ trunc(s_axi_control_wdata, 2);
+            }
+
+            if (read_fire()) {
+                next.rvalid = true;
+                match (s_axi_control_araddr) {
+                    0x00 => { next.rdata = zext(cat(fsm == Fsm::Finish, fsm == Fsm::Idle, ap_done, ap_start), 32); }
+                    0x04 => { next.rdata = zext(gie, 32); }
+                    0x08 => { next.rdata = zext(ier, 32); }
+                    0x0c => { next.rdata = zext(isr, 32); }
+                    0x10 => { next.rdata = arg_n; }
+                    0x18 => { next.rdata = trunc(arg_src, 32); }
+                    0x1c => { next.rdata = icnrut(arg_src, 32, 64); }
+                    0x24 => { next.rdata = trunc(arg_dst, 32); }
+                    0x28 => { next.rdata = icnrut(arg_dst, 32, 64); }
+                    0x30 => { next.rdata = arg_k; }
+                    _ => { next.rdata = 0; }
+                }
+            } else if (rvalid & s_axi_control_rready) {
+                next.rvalid = false;
+            }
+        }
+    }
+
+    // datapath: read a word, add k, write it back, next index
+    seq(ap_clk, ap_rst_n) {
+        if (!ap_rst_n) {
+            next.fsm = Fsm::Idle;
+            next.idx = 0;
+            next.word = 0;
+        } else {
+            match (fsm) {
+                Fsm::Idle => {
+                    if (ap_start) {
+                        next.idx = 0;
+                        if (arg_n == 0) {
+                            next.fsm = Fsm::Finish;
+                        } else {
+                            next.fsm = Fsm::ReadAddr;
+                        }
+                    }
+                }
+                Fsm::ReadAddr => {
+                    if (gmem_arready) { next.fsm = Fsm::ReadData; }
+                }
+                Fsm::ReadData => {
+                    if (gmem_rvalid) {
+                        next.word = trunc(gmem_rdata + arg_k, 32);
+                        next.fsm = Fsm::WriteAddr;
+                    }
+                }
+                Fsm::WriteAddr => {
+                    if (gmem_awready) { next.fsm = Fsm::WriteData; }
+                }
+                Fsm::WriteData => {
+                    if (gmem_wready) { next.fsm = Fsm::WriteResp; }
+                }
+                Fsm::WriteResp => {
+                    if (gmem_bvalid) {
+                        next.idx = trunc(idx + 1, 32);
+                        if (trunc(idx + 1, 32) == arg_n) {
+                            next.fsm = Fsm::Finish;
+                        } else {
+                            next.fsm = Fsm::ReadAddr;
+                        }
+                    }
+                }
+                Fsm::Finish => {
+                    next.fsm = Fsm::Idle;
+                }
+            }
+        }
+    }
+
+    comb {
+        s_axi_control_awready = write_fire();
+        s_axi_control_wready = write_fire();
+        s_axi_control_bvalid = bvalid;
+        s_axi_control_bresp = 0;
+        s_axi_control_arready = !rvalid;
+        s_axi_control_rvalid = rvalid;
+        s_axi_control_rdata = rdata;
+        s_axi_control_rresp = 0;
+        interrupt = gie & (isr != 0);
+
+        gmem_arvalid = fsm == Fsm::ReadAddr;
+        gmem_araddr = arg_src + ((idx as u<64>) << 2);
+        gmem_arlen = 0;
+        gmem_rready = fsm == Fsm::ReadData;
+        gmem_awvalid = fsm == Fsm::WriteAddr;
+        gmem_awaddr = arg_dst + ((idx as u<64>) << 2);
+        gmem_awlen = 0;
+        gmem_wvalid = fsm == Fsm::WriteData;
+        gmem_wdata = word;
+        gmem_wstrb = 0xf;
+        gmem_wlast = true;
+        gmem_bready = fsm == Fsm::WriteResp;
+    }
+}
