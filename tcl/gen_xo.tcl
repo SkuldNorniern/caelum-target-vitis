@@ -33,18 +33,9 @@ foreach {all name} [regexp -all -inline {<port name="([^"]+)"} $xml] {
 }
 
 create_project -force kernel_pack $work/project
-set files [concat [glob -nocomplain $rtl/*.v] [glob -nocomplain $rtl/*.sv]]
-if {[llength $files] == 0} {
-    puts "ERROR: no Verilog in $rtl"
-    exit 1
-}
-add_files -norecurse $files
-# Caelum emits SystemVerilog constructs (logic, sized casts, return) into .v files
-set_property file_type SystemVerilog [get_files $files]
-foreach vh [glob -nocomplain $rtl/*.vh] {
-    add_files -norecurse $vh
-    set_property file_type {Verilog Header} [get_files $vh]
-}
+# RTL reading is shared with caelum-target-vivado
+source $::env(CAELUM_PROVIDER_VIVADO_DIR)/tcl/read_rtl.tcl
+caelum_read_rtl $rtl project
 set_property top $top [current_fileset]
 update_compile_order -fileset sources_1
 

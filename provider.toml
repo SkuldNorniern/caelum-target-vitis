@@ -6,7 +6,11 @@ name = "vitis"
 description = "AMD Vitis RTL kernel flow: xo, xclbin, hw_emu and hw"
 modes = ["hw_emu", "hw"]
 provides = ["xo", "xclbin", "xrt-host"]
-tools = ["vivado", "v++"]
+tools = ["v++"]
+
+# kernel packaging is a Vivado job: RTL collection, SystemVerilog reading and the vivado tool come from there
+[dependencies]
+vivado = { git = "https://github.com/SkuldNorniern/caelum-target-vivado" }
 
 [step.build]
 commands = ["sh \"$CAELUM_PROVIDER_DIR/scripts/build.sh\""]

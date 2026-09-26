@@ -2,6 +2,7 @@
 # caelum build --target <t> --mode hw_emu|hw
 #
 # from caelum:    CAELUM_ROOT CAELUM_RTL_DIR CAELUM_OUT_DIR CAELUM_TOP CAELUM_MODE CAELUM_PROVIDER_DIR
+#                 CAELUM_PROVIDER_VIVADO_DIR (provider dependency)
 #                 CAELUM_PLATFORM_DIR VITIS_PLATFORM (platform [env]) CAELUM_HOST (target host =)
 # target options: kernel-xml (required)   kernel description for package_xo
 #                 config                  v++ --config with the connectivity (nk=, sp=), relative to the project
@@ -19,14 +20,8 @@ kxml=$root/$CAELUM_OPT_KERNEL_XML
 [ -f "$kxml" ] || die "kernel-xml not found: $kxml"
 jobs=${CAELUM_OPT_JOBS:-8}
 
-mkdir -p "$out/rtl"
-rm -f "$out/rtl/"*.v "$out/rtl/"*.vh "$out/rtl/"*.sv
-cp "$CAELUM_RTL_DIR"/*.v "$out/rtl/"
-cp "$CAELUM_RTL_DIR"/*.vh "$out/rtl/" 2>/dev/null || true
-if [ -n "${CAELUM_OPT_RTL:-}" ]; then
-  cp "$root/$CAELUM_OPT_RTL"/*.v "$out/rtl/" 2>/dev/null || true
-  cp "$root/$CAELUM_OPT_RTL"/*.sv "$out/rtl/" 2>/dev/null || true
-fi
+[ -n "${CAELUM_PROVIDER_VIVADO_DIR:-}" ] || die "no CAELUM_PROVIDER_VIVADO_DIR: run caelum fetch (vitis depends on caelum-target-vivado)"
+sh "$CAELUM_PROVIDER_VIVADO_DIR/scripts/collect_rtl.sh" "$out/rtl"
 
 echo "vitis: packaging $CAELUM_TOP -> kernel.xo"
 ( cd "$out" && vivado -mode batch -nojournal -log package.log \
