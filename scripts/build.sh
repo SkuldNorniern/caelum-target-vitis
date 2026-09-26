@@ -20,7 +20,7 @@ kxml=$root/$CAELUM_OPT_KERNEL_XML
 [ -f "$kxml" ] || die "kernel-xml not found: $kxml"
 jobs=${CAELUM_OPT_JOBS:-8}
 
-[ -n "${CAELUM_PROVIDER_VIVADO_DIR:-}" ] || die "no CAELUM_PROVIDER_VIVADO_DIR: run caelum fetch (vitis depends on caelum-target-vivado)"
+[ -n "${CAELUM_PROVIDER_VIVADO_DIR:-}" ] || die "no CAELUM_PROVIDER_VIVADO_DIR: vitis depends on caelum-target-vivado, update caelum"
 sh "$CAELUM_PROVIDER_VIVADO_DIR/scripts/collect_rtl.sh" "$out/rtl"
 
 echo "vitis: packaging $CAELUM_TOP -> kernel.xo"

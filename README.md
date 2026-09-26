@@ -31,14 +31,13 @@ mode = "hw_emu"
 ```
 
 ```bash
-caelum fetch
 caelum build --target u50-emu            # xo, xclbin, emconfig.json, host in build/u50-emu/hw_emu/
 caelum run --target u50-emu              # host with XCL_EMULATION_MODE=hw_emu
 caelum build --target u50 --mode hw      # the real bitstream
 caelum build --target u50 --dry-run      # environment and commands only
 ```
 
-depends on [caelum-target-vivado](https://github.com/SkuldNorniern/caelum-target-vivado) for packaging (RTL collection and reading, the `vivado` tool check). `caelum fetch` pulls it in; name `vivado` in your own `[target-dependencies]` to pin it.
+depends on [caelum-target-vivado](https://github.com/SkuldNorniern/caelum-target-vivado) for packaging (RTL collection and reading, the `vivado` tool check). it is downloaded with the rest on the first build; name `vivado` in your own `[target-dependencies]` to pin it.
 
 needs Vitis and XRT on PATH (`source <vitis>/settings64.sh`, `source /opt/xilinx/xrt/setup.sh`). Linux only, like Vitis.
 

@@ -27,7 +27,6 @@ register map (`s_axi_control`):
 caelum check
 cd sim && cargo run --release              # sim, runs anywhere
 
-caelum fetch
 caelum build --target u50-emu              # xo, xclbin, host (Linux, Vitis + XRT)
 caelum run --target u50-emu
 caelum build --target u50 --mode hw        # bitstream, hours
