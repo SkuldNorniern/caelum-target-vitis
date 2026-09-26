@@ -6,7 +6,8 @@ name = "vitis"
 description = "AMD Vitis RTL kernel flow: xo, xclbin, hw_emu and hw"
 modes = ["hw_emu", "hw"]
 provides = ["xo", "xclbin", "xrt-host"]
-tools = ["v++"]
+tools = ["v++", "emconfigutil", "g++|clang++"]
+install = "AMD Vitis: source <vitis>/settings64.sh; XRT: source /opt/xilinx/xrt/setup.sh"
 
 # kernel packaging is a Vivado job: RTL collection, SystemVerilog reading and the vivado tool come from there
 [dependencies]

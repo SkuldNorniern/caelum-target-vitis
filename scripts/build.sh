@@ -11,6 +11,16 @@
 set -eu
 
 die() { echo "vitis: $*" >&2; exit 1; }
+# stage <what> <log> <cmd...>: output stays on screen, a failure names the stage and its log
+# (tools are checked by caelum from provider.toml)
+stage() {
+  what=$1
+  log=$2
+  shift 2
+  "$@" && return 0
+  status=$?
+  die "$what failed (exit $status), log: $log"
+}
 [ -n "${VITIS_PLATFORM:-}" ] || die "no VITIS_PLATFORM: pick a platform (platform = \"alveo::u50\") or set it in [env]"
 [ -n "${CAELUM_OPT_KERNEL_XML:-}" ] || die "set kernel-xml = \"<path>\" in the [target] table"
 
@@ -24,9 +34,10 @@ jobs=${CAELUM_OPT_JOBS:-8}
 sh "$CAELUM_PROVIDER_VIVADO_DIR/scripts/collect_rtl.sh" "$out/rtl"
 
 echo "vitis: packaging $CAELUM_TOP -> kernel.xo"
-( cd "$out" && vivado -mode batch -nojournal -log package.log \
+stage "kernel packaging (vivado)" "$out/package.log" sh -c 'cd "$1" && shift && exec "$@"' _ "$out" \
+    vivado -mode batch -nojournal -log package.log \
     -source "$CAELUM_PROVIDER_DIR/tcl/gen_xo.tcl" \
-    -tclargs "$out/kernel.xo" "$CAELUM_TOP" "$kxml" "$out/rtl" "$out/packaged" )
+    -tclargs "$out/kernel.xo" "$CAELUM_TOP" "$kxml" "$out/rtl" "$out/packaged"
 
 cfg=""
 if [ -n "${CAELUM_PLATFORM_DIR:-}" ] && [ -f "$CAELUM_PLATFORM_DIR/platform.cfg" ]; then
@@ -38,14 +49,13 @@ fi
 
 echo "vitis: linking kernel.xclbin ($CAELUM_MODE, $VITIS_PLATFORM)"
 # shellcheck disable=SC2086
-v++ -l -t "$CAELUM_MODE" --platform "$VITIS_PLATFORM" $cfg \
+stage "v++ link" "$out/logs" v++ -l -t "$CAELUM_MODE" --platform "$VITIS_PLATFORM" $cfg \
     --vivado.param general.maxThreads="$jobs" --vivado.impl.jobs "$jobs" --vivado.synth.jobs "$jobs" \
     --temp_dir "$out/tmp" --log_dir "$out/logs" --report_dir "$out/reports" --report_level 2 \
     "$out/kernel.xo" -o "$out/kernel.xclbin"
 
 if [ "$CAELUM_MODE" = hw_emu ]; then
-  command -v emconfigutil >/dev/null || die "hw_emu needs emconfigutil on PATH"
-  emconfigutil --platform "$VITIS_PLATFORM" --od "$out" --nd 1
+  stage "emconfigutil" "(its output above)" emconfigutil --platform "$VITIS_PLATFORM" --od "$out" --nd 1
 fi
 if [ -n "${CAELUM_PLATFORM_DIR:-}" ] && [ -f "$CAELUM_PLATFORM_DIR/xrt.ini" ]; then
   cp "$CAELUM_PLATFORM_DIR/xrt.ini" "$out/"
@@ -54,7 +64,7 @@ fi
 if [ -n "${CAELUM_HOST:-}" ]; then
   [ -n "${XILINX_XRT:-}" ] || die "host program needs XILINX_XRT (source /opt/xilinx/xrt/setup.sh)"
   echo "vitis: host $CAELUM_HOST"
-  ${CXX:-g++} -std=c++17 -O2 -g -Wall "$CAELUM_HOST" -I"$XILINX_XRT/include" -L"$XILINX_XRT/lib" \
+  stage "host compile" "(its output above)" "${CXX:-g++}" -std=c++17 -O2 -g -Wall "$CAELUM_HOST" -I"$XILINX_XRT/include" -L"$XILINX_XRT/lib" \
       -lxrt_coreutil -pthread -o "$out/host"
 fi
 echo "vitis: done, $out"
