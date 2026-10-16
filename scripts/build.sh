@@ -78,6 +78,11 @@ if [ -n "$bit" ] && [ -n "$hwh" ]; then
   echo "vitis: $CAELUM_TOP.bit + $CAELUM_TOP.hwh for PYNQ"
 fi
 
+# a platform run.sh runs the host on the board, the host doesn't build here
+if [ -n "${CAELUM_HOST:-}" ] && [ -n "${CAELUM_PLATFORM_DIR:-}" ] && [ -f "$CAELUM_PLATFORM_DIR/run.sh" ]; then
+  echo "vitis: done, $out"
+  exit 0
+fi
 if [ -n "${CAELUM_HOST:-}" ]; then
   [ -n "${XILINX_XRT:-}" ] || die "host program needs XILINX_XRT (source /opt/xilinx/xrt/setup.sh)"
   echo "vitis: host $CAELUM_HOST"
