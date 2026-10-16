@@ -70,6 +70,14 @@ if [ -n "${CAELUM_PLATFORM_DIR:-}" ] && [ -f "$CAELUM_PLATFORM_DIR/xrt.ini" ]; t
   cp "$CAELUM_PLATFORM_DIR/xrt.ini" "$out/"
 fi
 
+# summary.toml for caelum report: the whole linked design (shell + kernels), placed and routed
+imp=$out/reports/link/imp
+util=$(ls "$imp"/*_utilization_placed.rpt 2>/dev/null | grep -v full_util | head -n 1)
+timing=$(ls "$imp"/*_timing_summary_routed.rpt 2>/dev/null | head -n 1)
+if [ -n "$util" ]; then
+  sh "$CAELUM_PROVIDER_VIVADO_DIR/scripts/summary.sh" "v++ link" "$util" "${timing:-}" "$out/summary.toml"
+fi
+
 # embedded platforms: the bitstream and .hwh out of the link too, what pynq.Overlay loads
 # (the link project's, not the platform's copy under vpl/.local, which has no kernel in it)
 prj=$out/tmp/link/vivado/vpl/prj
