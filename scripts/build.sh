@@ -55,13 +55,16 @@ fi
 echo "vitis: linking kernel.xclbin ($CAELUM_MODE, $VITIS_PLATFORM)"
 # shellcheck disable=SC2086
 # a platform's [env] VITIS_LINK_OPTS goes on the link line (zynq: --save-temps, to keep the .bit / .hwh)
-stage "v++ link" "$out/logs" v++ -l -t "$CAELUM_MODE" --platform "$VITIS_PLATFORM" $cfg ${VITIS_LINK_OPTS:-} \
+# run in $out: v++ leaves analyzer_input / xcd.log / .Xil in its working directory
+stage "v++ link" "$out/logs" sh -c 'cd "$1" && shift && exec "$@"' _ "$out" \
+    v++ -l -t "$CAELUM_MODE" --platform "$VITIS_PLATFORM" $cfg ${VITIS_LINK_OPTS:-} \
     --vivado.param general.maxThreads="$jobs" --vivado.impl.jobs "$jobs" --vivado.synth.jobs "$jobs" \
     --temp_dir "$out/tmp" --log_dir "$out/logs" --report_dir "$out/reports" --report_level 2 \
     "$out/kernel.xo" -o "$out/kernel.xclbin"
 
 if [ "$CAELUM_MODE" = hw_emu ]; then
-  stage "emconfigutil" "(its output above)" emconfigutil --platform "$VITIS_PLATFORM" --od "$out" --nd 1
+  stage "emconfigutil" "(its output above)" sh -c 'cd "$1" && shift && exec "$@"' _ "$out" \
+      emconfigutil --platform "$VITIS_PLATFORM" --od "$out" --nd 1
 fi
 if [ -n "${CAELUM_PLATFORM_DIR:-}" ] && [ -f "$CAELUM_PLATFORM_DIR/xrt.ini" ]; then
   cp "$CAELUM_PLATFORM_DIR/xrt.ini" "$out/"
