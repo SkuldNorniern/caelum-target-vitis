@@ -21,6 +21,11 @@ stage() {
   status=$?
   die "$what failed (exit $status), log: $log"
 }
+# a platform without an installed shell (zynq) brings a recipe for one, built once into build/.platforms
+if [ -z "${VITIS_PLATFORM:-}" ] && [ -n "${CAELUM_PLATFORM_DIR:-}" ] && [ -f "$CAELUM_PLATFORM_DIR/build_platform.sh" ]; then
+  VITIS_PLATFORM=$(sh "$CAELUM_PLATFORM_DIR/build_platform.sh" "$CAELUM_RTL_DIR/.platforms" | tail -n 1) \
+    || die "building the platform failed"
+fi
 [ -n "${VITIS_PLATFORM:-}" ] || die "no VITIS_PLATFORM: pick a platform (platform = \"alveo::u50\") or set it in [env]"
 [ -n "${CAELUM_OPT_KERNEL_XML:-}" ] || die "set kernel-xml = \"<path>\" in the [target] table"
 
@@ -49,7 +54,8 @@ fi
 
 echo "vitis: linking kernel.xclbin ($CAELUM_MODE, $VITIS_PLATFORM)"
 # shellcheck disable=SC2086
-stage "v++ link" "$out/logs" v++ -l -t "$CAELUM_MODE" --platform "$VITIS_PLATFORM" $cfg \
+# a platform's [env] VITIS_LINK_OPTS goes on the link line (zynq: --save-temps, to keep the .bit / .hwh)
+stage "v++ link" "$out/logs" v++ -l -t "$CAELUM_MODE" --platform "$VITIS_PLATFORM" $cfg ${VITIS_LINK_OPTS:-} \
     --vivado.param general.maxThreads="$jobs" --vivado.impl.jobs "$jobs" --vivado.synth.jobs "$jobs" \
     --temp_dir "$out/tmp" --log_dir "$out/logs" --report_dir "$out/reports" --report_level 2 \
     "$out/kernel.xo" -o "$out/kernel.xclbin"
@@ -59,6 +65,17 @@ if [ "$CAELUM_MODE" = hw_emu ]; then
 fi
 if [ -n "${CAELUM_PLATFORM_DIR:-}" ] && [ -f "$CAELUM_PLATFORM_DIR/xrt.ini" ]; then
   cp "$CAELUM_PLATFORM_DIR/xrt.ini" "$out/"
+fi
+
+# embedded platforms: the bitstream and .hwh out of the link too, what pynq.Overlay loads
+# (the link project's, not the platform's copy under vpl/.local, which has no kernel in it)
+prj=$out/tmp/link/vivado/vpl/prj
+bit=$(ls "$prj"/prj.runs/impl_1/*.bit 2>/dev/null | head -n 1)
+hwh=$(ls "$prj"/prj.gen/sources_1/bd/*/hw_handoff/*.hwh 2>/dev/null | head -n 1)
+if [ -n "$bit" ] && [ -n "$hwh" ]; then
+  cp "$bit" "$out/$CAELUM_TOP.bit"
+  cp "$hwh" "$out/$CAELUM_TOP.hwh"
+  echo "vitis: $CAELUM_TOP.bit + $CAELUM_TOP.hwh for PYNQ"
 fi
 
 if [ -n "${CAELUM_HOST:-}" ]; then
